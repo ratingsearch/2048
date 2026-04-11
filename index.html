@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>2048 (Undo付き)</title>
+
+  <style>
+    body {
+      font-family: system-ui, sans-serif;
+      background: #faf8ef;
+      text-align: center;
+      margin: 0;
+      padding: 30px 10px;
+      color: #776e65;
+    }
+
+    h1 {
+      margin: 0 0 10px;
+      font-size: 48px;
+    }
+
+    .topbar {
+      max-width: 420px;
+      margin: 0 auto 15px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+
+    .scorebox {
+      background: #bbada0;
+      color: white;
+      padding: 10px 14px;
+      border-radius: 8px;
+      font-weight: bold;
+      min-width: 120px;
+    }
+
+    .scorebox small {
+      display: block;
+      font-size: 12px;
+      opacity: 0.9;
+      margin-bottom: 4px;
+    }
+
+    button {
+      cursor: pointer;
+      border: none;
+      padding: 10px 14px;
+      border-radius: 8px;
+      background: #8f7a66;
+      color: white;
+      font-weight: bold;
+      font-size: 14px;
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .grid {
+      width: 420px;
+      max-width: 92vw;
+      aspect-ratio: 1 / 1;
+      margin: 0 auto;
+      background: #bbada0;
+      border-radius: 10px;
+      padding: 10px;
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 10px;
+      position: relative;
+    }
+
+    .cell {
+      background: #cdc1b4;
+      border-radius: 8px;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      font-weight: 800;
+      font-size: 32px;
+      color: #776e65;
+      user-select: none;
+      transition: transform 0.05s ease;
+    }
+
+    /* タイルの色 */
+    .v2   { background: #eee4da; }
+    .v4   { background: #ede0c8; }
+    .v8   { background: #f2b179; color: #f9f6f2; }
+    .v16  { background: #f59563; color: #f9f6f2; }
+    .v32  { background: #f67c5f; color: #f9f6f2; }
+    .v64  { background: #f65e3b; color: #f9f6f2; }
+    .v128 { background: #edcf72; color: #f9f6f2; font-size: 28px; }
+    .v256 { background: #edcc61; color: #f9f6f2; font-size: 28px; }
+    .v512 { background: #edc850; color: #f9f6f2; font-size: 28px; }
+    .v1024{ background: #edc53f; color: #f9f6f2; font-size: 22px; }
+    .v2048{ background: #edc22e; color: #f9f6f2; font-size: 22px; }
+
+    .message {
+      max-width: 420px;
+      margin: 12px auto 0;
+      font-weight: bold;
+      min-height: 24px;
+    }
+
+    .hint {
+      max-width: 420px;
+      margin: 8px auto 0;
+      font-size: 13px;
+      opacity: 0.8;
+    }
+  </style>
+</head>
+
+<body>
+  <h1>2048</h1>
+
+  <div class="topbar">
+    <div class="scorebox">
+      <small>SCORE</small>
+      <span id="score">0</span>
+    </div>
+
+    <button id="undoBtn" disabled>一手戻る (Undo)</button>
+    <button id="newBtn">ニューゲーム</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="message" id="message"></div>
+  <div class="hint">操作：矢印キー / WASD / スマホはスワイプ対応</div>
+
+  <script>
+    const SIZE = 4;
+    let board = [];
+    let score = 0;
+
+    // Undo用（1手分だけ保持）
+    let prevBoard = null;
+    let prevScore = 0;
+
+    const gridEl = document.getElementById("grid");
+    const scoreEl = document.getElementById("score");
+    const messageEl = document.getElementById("message");
+    const undoBtn = document.getElementById("undoBtn");
+    const newBtn = document.getElementById("newBtn");
+
+    function emptyBoard() {
+      return Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
+    }
+
+    function cloneBoard(b) {
+      return b.map(row => row.slice());
+    }
+
+    function setMessage(msg) {
+      messageEl.textContent = msg || "";
+    }
+
+    function updateScore() {
+      scoreEl.textContent = score;
+    }
+
+    function drawBoard() {
+      gridEl.innerHTML = "";
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const val = board[r][c];
+          const cell = document.createElement("div");
+          cell.className = "cell";
+          if (val !== 0) {
+            cell.textContent = val;
+            cell.classList.add("v" + val);
+          } else {
+            cell.textContent = "";
+          }
+          gridEl.appendChild(cell);
+        }
+      }
+      updateScore();
+    }
+
+    function getEmptyCells() {
+      const cells = [];
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          if (board[r][c] === 0) cells.push({ r, c });
+        }
+      }
+      return cells;
+    }
+
+    function spawnTile() {
+      const empties = getEmptyCells();
+      if (empties.length === 0) return;
+
+      const spot = empties[Math.floor(Math.random() * empties.length)];
+      board[spot.r][spot.c] = Math.random() < 0.9 ? 2 : 4;
+    }
+
+    function canMove() {
+      // 空きがあれば動ける
+      if (getEmptyCells().length > 0) return true;
+
+      // 隣接が同じなら動ける
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          const v = board[r][c];
+          if (r + 1 < SIZE && board[r + 1][c] === v) return true;
+          if (c + 1 < SIZE && board[r][c + 1] === v) return true;
+        }
+      }
+      return false;
+    }
+
+    function checkWin() {
+      for (let r = 0; r < SIZE; r++) {
+        for (let c = 0; c < SIZE; c++) {
+          if (board[r][c] === 2048) return true;
+        }
+      }
+      return false;
+    }
+
+    // 1行を左に詰めてマージする関数
+    // 例: [2,0,2,4] => [4,4,0,0]
+    function mergeLineLeft(line) {
+      let arr = line.filter(v => v !== 0);
+
+      for (let i = 0; i < arr.length - 1; i++) {
+        if (arr[i] === arr[i + 1]) {
+          arr[i] *= 2;
+          score += arr[i];
+          arr[i + 1] = 0;
+          i++;
+        }
+      }
+
+      arr = arr.filter(v => v !== 0);
+
+      while (arr.length < SIZE) arr.push(0);
+      return arr;
+    }
+
+    function moveLeft() {
+      let moved = false;
+
+      for (let r = 0; r < SIZE; r++) {
+        const original = board[r].slice();
+        const merged = mergeLineLeft(board[r]);
+        board[r] = merged;
+
+        if (original.join(",") !== merged.join(",")) moved = true;
+      }
+
+      return moved;
+    }
+
+    function moveRight() {
+      let moved = false;
+
+      for (let r = 0; r < SIZE; r++) {
+        const original = board[r].slice();
+        const reversed = board[r].slice().reverse();
+        const merged = mergeLineLeft(reversed).reverse();
+        board[r] = merged;
+
+        if (original.join(",") !== merged.join(",")) moved = true;
+      }
+
+      return moved;
+    }
+
+    function moveUp() {
+      let moved = false;
+
+      for (let c = 0; c < SIZE; c++) {
+        const col = [];
+        for (let r = 0; r < SIZE; r++) col.push(board[r][c]);
+
+        const original = col.slice();
+        const merged = mergeLineLeft(col);
+
+        for (let r = 0; r < SIZE; r++) board[r][c] = merged[r];
+
+        if (original.join(",") !== merged.join(",")) moved = true;
+      }
+
+      return moved;
+    }
+
+    function moveDown() {
+      let moved = false;
+
+      for (let c = 0; c < SIZE; c++) {
+        const col = [];
+        for (let r = 0; r < SIZE; r++) col.push(board[r][c]);
+
+        const original = col.slice();
+        const merged = mergeLineLeft(col.reverse()).reverse();
+
+        for (let r = 0; r < SIZE; r++) board[r][c] = merged[r];
+
+        if (original.join(",") !== merged.join(",")) moved = true;
+      }
+
+      return moved;
+    }
+
+    function saveUndoState() {
+      prevBoard = cloneBoard(board);
+      prevScore = score;
+      undoBtn.disabled = false;
+    }
+
+    function undo() {
+      if (!prevBoard) return;
+
+      board = cloneBoard(prevBoard);
+      score = prevScore;
+
+      prevBoard = null;
+      undoBtn.disabled = true;
+
+      setMessage("Undoしました");
+      drawBoard();
+    }
+
+    function doMove(direction) {
+      if (!canMove()) return;
+
+      // 盤面とスコアを保存（動いたらUndo可能にするため）
+      const beforeBoard = cloneBoard(board);
+      const beforeScore = score;
+
+      let moved = false;
+
+      if (direction === "left") moved = moveLeft();
+      if (direction === "right") moved = moveRight();
+      if (direction === "up") moved = moveUp();
+      if (direction === "down") moved = moveDown();
+
+      if (!moved) return;
+
+      // Undo用に保存
+      prevBoard = beforeBoard;
+      prevScore = beforeScore;
+      undoBtn.disabled = false;
+
+      spawnTile();
+      drawBoard();
+
+      if (checkWin()) {
+        setMessage("🎉 2048達成！");
+      } else if (!canMove()) {
+        setMessage("💀 ゲームオーバー");
+      } else {
+        setMessage("");
+      }
+    }
+
+    function newGame() {
+      board = emptyBoard();
+      score = 0;
+      prevBoard = null;
+      prevScore = 0;
+      undoBtn.disabled = true;
+
+      spawnTile();
+      spawnTile();
+      setMessage("");
+      drawBoard();
+    }
+
+    // キー操作
+    document.addEventListener("keydown", (e) => {
+      const key = e.key.toLowerCase();
+
+      if (key === "arrowleft" || key === "a") doMove("left");
+      if (key === "arrowright" || key === "d") doMove("right");
+      if (key === "arrowup" || key === "w") doMove("up");
+      if (key === "arrowdown" || key === "s") doMove("down");
+
+      if (key === "u") undo();
+    });
+
+    // ボタン
+    undoBtn.addEventListener("click", undo);
+    newBtn.addEventListener("click", newGame);
+
+    // スマホスワイプ対応
+    let touchStartX = 0;
+    let touchStartY = 0;
+
+    document.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      touchStartX = t.clientX;
+      touchStartY = t.clientY;
+    });
+
+    document.addEventListener("touchend", (e) => {
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+
+      if (Math.abs(dx) < 30 && Math.abs(dy) < 30) return;
+
+      if (Math.abs(dx) > Math.abs(dy)) {
+        if (dx > 0) doMove("right");
+        else doMove("left");
+      } else {
+        if (dy > 0) doMove("down");
+        else doMove("up");
+      }
+    });
+
+    // 初期化
+    newGame();
+  </script>
+</body>
+</html>
