@@ -131,6 +131,12 @@
     <button id="newBtn">ニューゲーム</button>
   </div>
 
+  <select id="difficulty">
+  <option value="NORMAL">NORMAL</option>
+  <option value="EVIL">EVIL</option>
+  <option value="SATAN" selected>SATAN</option>
+</select>
+
   <div class="grid" id="grid"></div>
 
   <div class="message" id="message"></div>
@@ -140,6 +146,7 @@
     const SIZE = 4;
     let board = [];
     let score = 0;
+    let difficulty = "SATAN";
 
     // Undo用（1手分だけ保持）
     let prevBoard = null;
@@ -150,6 +157,13 @@
     const messageEl = document.getElementById("message");
     const undoBtn = document.getElementById("undoBtn");
     const newBtn = document.getElementById("newBtn");
+
+    const difficultyEl =
+  document.getElementById("difficulty");
+
+difficultyEl.addEventListener("change", e => {
+  difficulty = e.target.value;
+});
 
     function emptyBoard() {
       return Array.from({ length: SIZE }, () => Array(SIZE).fill(0));
@@ -196,13 +210,117 @@
       return cells;
     }
 
-    function spawnTile() {
-      const empties = getEmptyCells();
-      if (empties.length === 0) return;
+    function evaluateBoard(testBoard) {
 
-      const spot = empties[Math.floor(Math.random() * empties.length)];
-      board[spot.r][spot.c] = Math.random() < 0.9 ? 2 : 4;
+  let empty = 0;
+  let merges = 0;
+
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+
+      if (testBoard[r][c] === 0)
+        empty++;
+
+      const v = testBoard[r][c];
+
+      if (!v) continue;
+
+      if (
+        r + 1 < SIZE &&
+        testBoard[r + 1][c] === v
+      ) merges++;
+
+      if (
+        c + 1 < SIZE &&
+        testBoard[r][c + 1] === v
+      ) merges++;
     }
+  }
+
+  let max = 0;
+  let maxPos = { r: 0, c: 0 };
+
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+
+      if (testBoard[r][c] > max) {
+
+        max = testBoard[r][c];
+
+        maxPos = { r, c };
+      }
+    }
+  }
+
+  const corner =
+    (maxPos.r === 0 && maxPos.c === 0) ||
+    (maxPos.r === 0 && maxPos.c === 3) ||
+    (maxPos.r === 3 && maxPos.c === 0) ||
+    (maxPos.r === 3 && maxPos.c === 3);
+
+  let score = 0;
+
+  score -= empty * 50;
+  score -= merges * 300;
+
+  if (!corner)
+    score += 1000;
+
+  return score;
+}
+
+function spawnTile() {
+
+  const empties = getEmptyCells();
+
+  if (empties.length === 0)
+    return;
+
+  // NORMAL
+  if (difficulty === "NORMAL") {
+
+    const spot =
+      empties[
+        Math.floor(
+          Math.random() * empties.length
+        )
+      ];
+
+    board[spot.r][spot.c] =
+      Math.random() < 0.9 ? 2 : 4;
+
+    return;
+  }
+
+  const value =
+    difficulty === "SATAN"
+      ? (Math.random() < 0.5 ? 2 : 4)
+      : (Math.random() < 0.9 ? 2 : 4);
+
+  let bestCell = null;
+  let bestScore = -Infinity;
+
+  for (const cell of empties) {
+
+    const testBoard =
+      cloneBoard(board);
+
+    testBoard[cell.r][cell.c] =
+      value;
+
+    const score =
+      evaluateBoard(testBoard);
+
+    if (score > bestScore) {
+
+      bestScore = score;
+      bestCell = cell;
+    }
+  }
+
+  board[bestCell.r][bestCell.c] =
+    value;
+}
 
     function canMove() {
       // 空きがあれば動ける
